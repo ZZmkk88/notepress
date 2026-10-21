@@ -228,3 +228,25 @@ def test_missing_font_still_renders(client, monkeypatch):
     assert rendered.json()["count"] >= 2
     for n in range(1, rendered.json()["count"] + 1):
         _open_card(client, token, did, n)
+
+
+def test_update_null_fields_not_stored_as_none_string(client):
+    """回归：草稿更新时传 JSON null，不得存成 "None" 字面量（082-P2-3）。"""
+    token = _login(client)
+    r = client.post(
+        "/api/drafts",
+        headers=_auth(token),
+        json={"title": "空值测试", "body": "正文", "tags": []},
+    )
+    assert r.status_code == 200, r.text
+    did = r.json()["id"]
+    r = client.put(
+        f"/api/drafts/{did}",
+        headers=_auth(token),
+        json={"published_url": None, "published_at": None, "status": "published"},
+    )
+    assert r.status_code == 200, r.text
+    d = client.get(f"/api/drafts/{did}", headers=_auth(token)).json()
+    assert d["published_url"] in (None, ""), d["published_url"]
+    assert d["published_at"] in (None, ""), d["published_at"]
+    assert '"None"' not in json.dumps(d, ensure_ascii=False)

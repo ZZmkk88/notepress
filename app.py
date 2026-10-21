@@ -162,6 +162,11 @@ def hash_password(password: str) -> str:
     return f"{salt}${digest.hex()}"
 
 
+# 启动时备一份固定假哈希：用户名不存在时也走一次等时长的校验，
+# 避免每次现生成新盐带来的时序差异（侧信道小事，顺手做掉）
+_DUMMY_HASH = hash_password("notepress-login-dummy")
+
+
 def verify_password(password: str, stored: str) -> bool:
     try:
         salt, expected = stored.split("$", 1)
@@ -265,7 +270,8 @@ def _short_topic(topic: str) -> str:
 
 
 def demo_expand(direction: str):
-    d = direction.strip()[:12]
+    # 方向词接口上限 50 字，演示模板不再截到 12 字，用完整方向词
+    d = direction.strip()
     patterns = [
         f"用AI搞定{d}，小白完整教程",
         f"{d}别再手动做了，试试AI",
@@ -343,8 +349,11 @@ def ai_expand(direction: str):
         if not cands:
             raise ValueError("empty")
         return {"candidates": cands, "demo": False}
+    except HTTPException:
+        raise
     except Exception:
-        return {"candidates": demo_expand(direction), "demo": True}
+        # 上游失败不再伪装成演示模式：明确报错 502
+        raise HTTPException(502, "AI 扩题失败，请重试")
 
 
 def ai_generate(topic: str, tone: str):
@@ -362,7 +371,13 @@ def ai_generate(topic: str, tone: str):
         "不要使用广告法极限词（如第一、最佳、100%等）。"
         '只输出 JSON：{"titles":["..."],"body":"...","tags":["..."]}，不要解释。'
     )
-    raw = llm_chat([{"role": "user", "content": prompt}], temperature=0.9)
+    try:
+        raw = llm_chat([{"role": "user", "content": prompt}], temperature=0.9)
+    except HTTPException:
+        raise
+    except Exception:
+        # 上游调用失败与扩题统一：明确报错 502，不让异常裸奔
+        raise HTTPException(502, "AI 写稿失败，请重试")
     try:
         out = _parse_json(raw)
     except Exception:
@@ -425,12 +440,18 @@ def find_font(bold=False):
 
 
 def get_font(size, bold=False):
-    path = find_font(bold)
-    if path:
-        try:
-            return ImageFont.truetype(path, size)
-        except Exception:
-            pass
+    # 粗体文件缺失或打不开时，回退到同一次查找里的常规字体，
+    # 而不是直接退到位图默认字体（后者没有中文）
+    paths = []
+    if bold:
+        paths.append(find_font(True))
+    paths.append(find_font(False))
+    for path in paths:
+        if path:
+            try:
+                return ImageFont.truetype(path, size)
+            except Exception:
+                continue
     return ImageFont.load_default()
 
 
@@ -711,7 +732,7 @@ async def login(request: Request):
         if row is None or not verify_password(password, row["password_hash"]):
             if row is None:
                 # 用户名不存在也照常走一次哈希校验，避免时序差异
-                verify_password(password, hash_password("placeholder"))
+                verify_password(password, _DUMMY_HASH)
             raise HTTPException(401, "用户名或密码不对")
         conn.execute("DELETE FROM sessions WHERE expires_at <= ?", (now_str(),))
         token = create_session(conn, row["id"])
@@ -906,8 +927,15 @@ async def update_draft(draft_id: int, request: Request, user=Depends(get_current
         if row is None:
             raise HTTPException(404, "草稿不存在")
         cur = dict(row)
-        title = str(data.get("title", cur["title"])).strip() if "title" in data else cur["title"]
-        body = str(data.get("body", cur["body"])) if "body" in data else cur["body"]
+        # JSON null 按空字符串处理（不再 str(None) 存成 "None" 字面量），
+        # 键缺席时保留原值
+        def _pick(key, cur_val):
+            if key not in data:
+                return cur_val
+            v = data[key]
+            return "" if v is None else str(v)
+        title = _pick("title", cur["title"]).strip()
+        body = _pick("body", cur["body"])
         validate_title_body(title, body)
         old_tags = json.loads(cur["tags"] or "[]")
         tags = _clean_tags(data["tags"]) if "tags" in data else old_tags
@@ -925,8 +953,8 @@ async def update_draft(draft_id: int, request: Request, user=Depends(get_current
             "UPDATE drafts SET title=?, body=?, tags=?, status=?, template=?, "
             "published_url=?, published_at=?, updated_at=? WHERE id=?",
             (title, body, json.dumps(tags, ensure_ascii=False), status, template,
-             str(data.get("published_url", cur["published_url"])),
-             str(data.get("published_at", cur["published_at"])),
+             _pick("published_url", cur["published_url"]),
+             _pick("published_at", cur["published_at"]),
              now_str(), draft_id),
         )
     if content_changed:
@@ -986,10 +1014,10 @@ async def upload_cover(draft_id: int, file: UploadFile = File(...),
     limit = 10 * 1024 * 1024
     size = file.size
     if size is not None and size > limit:
-        raise HTTPException(400, f"图片超过上限 10MB（当前 {size / 1024 / 1024:.1f}MB）")
+        raise HTTPException(400, f"图片超过上限 10MB（当前 {size} 字节）")
     raw = await file.read(limit + 1)
     if len(raw) > limit:
-        raise HTTPException(400, "图片超过上限 10MB")
+        raise HTTPException(400, f"图片超过上限 10MB（当前 {len(raw)} 字节）")
     try:
         img = Image.open(io.BytesIO(raw))
         img.verify()
@@ -1002,6 +1030,8 @@ async def upload_cover(draft_id: int, file: UploadFile = File(...),
         row = conn.execute("SELECT id FROM drafts WHERE id = ?", (draft_id,)).fetchone()
         if row is None:
             raise HTTPException(404, "草稿不存在")
+    # 换封面改扩展名时先删旧文件，避免 1.png / 1.jpg 同时残留
+    clear_cover_files(draft_id)
     (MEDIA_DIR / "covers" / name).write_bytes(raw)
     with get_db() as conn:
         conn.execute("UPDATE drafts SET cover_mode='upload', cover_file=?, updated_at=? WHERE id=?",
