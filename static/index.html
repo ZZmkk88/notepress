@@ -335,9 +335,21 @@ $("#expandBtn").onclick = async () => {
   try {
     const r = await api("/api/topics/expand", { method: "POST", body: JSON.stringify({ direction: d }) });
     $("#expandHint").textContent = r.demo ? "示例模式给出的候选" : "";
-    $("#expandList").innerHTML = r.candidates.map(c => `
-      <div class="item"><div class="grow">${esc(c)}</div>
-      <button onclick='addCandidate(this, ${JSON.stringify(c)})'>加入选题库</button></div>`).join("");
+    const box = $("#expandList");
+    box.replaceChildren();
+    (r.candidates || []).forEach(c => {
+      const item = document.createElement("div");
+      item.className = "item";
+      const grow = document.createElement("div");
+      grow.className = "grow";
+      grow.textContent = c;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = "加入选题库";
+      btn.addEventListener("click", () => window.addCandidate(btn, c));
+      item.append(grow, btn);
+      box.append(item);
+    });
   } catch (e) { alert(e.message); } finally { $("#expandBtn").disabled = false; }
 };
 window.addCandidate = async (btn, title) => {
@@ -508,8 +520,19 @@ $("#pwBtn").onclick = async () => {
 };
 async function refreshWords() {
   const d = await api("/api/banned-words");
-  $("#bwList").innerHTML = d.words.map(w => `
-    <span class="word">${esc(w)}<button onclick="delWord('${esc(w)}')">×</button></span>`).join("");
+  const box = $("#bwList");
+  box.replaceChildren();
+  (d.words || []).forEach(w => {
+    const span = document.createElement("span");
+    span.className = "word";
+    span.append(document.createTextNode(w));
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = "×";
+    btn.addEventListener("click", () => window.delWord(w));
+    span.append(btn);
+    box.append(span);
+  });
 }
 window.delWord = async w => { await api("/api/banned-words/" + encodeURIComponent(w), { method: "DELETE" }); refreshWords(); };
 $("#bwAdd").onclick = async () => {
