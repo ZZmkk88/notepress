@@ -535,10 +535,21 @@ def render_cards(draft) -> list:
             if s:
                 safe_tags.append(s)
         tag_line = "  ".join("#" + t for t in safe_tags)
+        max_w = CARD_W - 168
         if tag_line:
-            shown = fit_line(d, tag_line, f_sub, CARD_W - 168)
-            if shown:
-                d.text((84, CARD_H - 240), shown, font=f_sub, fill=tpl["sub"])
+            if d.textlength(tag_line, font=f_sub) <= max_w:
+                # 单行放得下：位置与旧版一致
+                d.text((84, CARD_H - 240), tag_line, font=f_sub, fill=tpl["sub"])
+            else:
+                # 先截断、再换行：整块底对齐在页脚上方，文字不画出卡片外
+                tag_lines = [fit_line(d, ln, f_sub, max_w)
+                             for ln in wrap_text(d, tag_line, f_sub, max_w)]
+                tag_lines = [ln for ln in tag_lines if ln]
+                line_h = 56
+                ty = (CARD_H - 150) - 16 - line_h * len(tag_lines)
+                for ln in tag_lines:
+                    d.text((84, ty), ln, font=f_sub, fill=tpl["sub"])
+                    ty += line_h
         d.text((84, CARD_H - 150), "notepress 笔记工坊", font=f_sub, fill=tpl["sub"])
         img.save(cover_path)
         files.append("card_1.png")
