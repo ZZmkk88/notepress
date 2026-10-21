@@ -250,3 +250,41 @@ def test_update_null_fields_not_stored_as_none_string(client):
     assert d["published_url"] in (None, ""), d["published_url"]
     assert d["published_at"] in (None, ""), d["published_at"]
     assert '"None"' not in json.dumps(d, ensure_ascii=False)
+
+
+def test_extreme_aspect_cover_renders(client):
+    """回归：2000×10 极端宽高比封面不把中间图放大到数亿像素（097-P1-1）。
+
+    旧公式 scale=max(1080/2000, 1440/10)=144 会算出 288000×1440（约 4.15 亿像素）
+    的中间图；ImageOps.fit 先裁后缩，内存可控。
+    """
+    import time
+    token = _login(client)
+    r = client.post(
+        "/api/drafts",
+        headers=_auth(token),
+        json={"title": "宽高比测试", "body": "正文", "tags": []},
+    )
+    assert r.status_code == 200, r.text
+    did = r.json()["id"]
+    buf = io.BytesIO()
+    Image.new("RGB", (2000, 10), "navy").save(buf, "PNG")
+    up = client.post(
+        f"/api/drafts/{did}/cover",
+        files={"file": ("wide.png", buf.getvalue(), "image/png")},
+        headers=_auth(token),
+    )
+    assert up.status_code == 200, up.text
+    t0 = time.time()
+    rendered = client.post(f"/api/drafts/{did}/render", headers=_auth(token), json={})
+    dt = time.time() - t0
+    assert rendered.status_code == 200, rendered.text
+    assert rendered.json()["count"] >= 1
+    # 注：不用 _open_card——它的外缘溢墨断言只适用于模板封面（浅底），
+    # 上传照片封面整张都是图。这里只断言下载成功、尺寸 1080×1440、耗时合理。
+    r = client.get(f"/api/drafts/{did}/cards/1", headers=_auth(token))
+    assert r.status_code == 200, r.text
+    assert r.content[:8] == b"\x89PNG\r\n\x1a\n"
+    im = Image.open(io.BytesIO(r.content)).convert("RGB")
+    assert im.size == (1080, 1440)
+    assert dt < 30, f"渲染耗时 {dt:.1f}s 过长"

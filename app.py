@@ -19,7 +19,7 @@ from pathlib import Path
 import httpx
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = Path(os.environ.get("NOTEPRESS_DB", str(BASE_DIR / "notepress.db")))
@@ -551,11 +551,8 @@ def render_cards(draft) -> list:
         src = MEDIA_DIR / "covers" / Path(draft["cover_file"]).name
         if src.exists():
             img = Image.open(src).convert("RGB")
-            scale = max(CARD_W / img.width, CARD_H / img.height)
-            img = img.resize((int(img.width * scale) + 1, int(img.height * scale) + 1))
-            x = (img.width - CARD_W) // 2
-            y = (img.height - CARD_H) // 2
-            img = img.crop((x, y, x + CARD_W, y + CARD_H))
+            # 先在源图上裁出 3:4 再缩放到卡片，避免极端宽高比把整图放大到数亿像素。
+            img = ImageOps.fit(img, (CARD_W, CARD_H))
             band = img.crop((0, CARD_H - 420, CARD_W, CARD_H))
             dark = Image.new("RGB", (CARD_W, 420), (0, 0, 0))
             img.paste(Image.blend(band, dark, 0.55), (0, CARD_H - 420))
