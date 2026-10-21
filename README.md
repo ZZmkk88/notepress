@@ -52,16 +52,20 @@ python app.py
 不需要 API key。自动化测试在演示模式下运行，并断言不会调用 `httpx.post`。
 
 ```bat
+pip install -r requirements.txt
 pip install -r requirements-dev.txt
 python -m pytest tests\ -q -p no:cacheprovider
 python tests\live_selftest.py
 ```
 
 ```bash
+pip install -r requirements.txt
 pip install -r requirements-dev.txt
 python -m pytest tests/ -q -p no:cacheprovider
 python tests/live_selftest.py
 ```
+
+测试依赖文件 requirements-dev.txt 只钉了 pytest，运行时包要先装 requirements.txt。
 
 `tests/test_app.py`（25 项）+ `tests/test_acceptance.py`（7 项）共 32 项；
 真实流程自测 16 个检查点（起真服务走完 选题→写稿→草稿→成卡→导出 全流程）。

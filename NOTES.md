@@ -19,7 +19,8 @@
 
 - 云端实测：2 核 CPU / 约 7.7G 内存 / Python 3.12，无显卡。
 - 本项目是纯文字处理 + Pillow 画图：一张 1080×1440 卡片渲染为毫秒级，
-  SQLite 单文件存储，依赖只有 FastAPI/uvicorn/httpx/Pillow 四个运行时包。
+  SQLite 单文件存储，依赖只有 FastAPI/uvicorn/httpx/Pillow/python-multipart
+  五个运行时包（python-multipart 是封面图片上传要用的）。
 - 结论：云端带得动，绰绰有余。唯一外部调用是写稿时的大模型接口（可不配，见演示模式）。
 
 ## 技术取舍
@@ -30,9 +31,10 @@
   密钥只从环境变量读，不进仓库、不进代码、不进测试。
 - 演示模式：未配密钥时用内置模板按赛道生成示例稿并明确标注 demo，
   保证没密钥也能把全流程跑通、验收和测试都不依赖外部服务。
-- 字体：不打包中文字体进仓库（2MB 红线）。运行时按回退链找系统字体：
-  Windows 微软雅黑 → macOS 苹方 → Linux Noto Sans CJK / 文泉驿；
-  也可用 NOTEPRESS_FONT_PATH 指定任意字体文件。
+- 字体：不打包中文字体进仓库（2MB 红线）。运行时按回退链找系统字体，
+  顺序与 app.py 的 _FONT_CANDIDATES 一致：NOTEPRESS_FONT_PATH → Linux Noto Sans CJK
+  → Linux 文泉驿正黑 → Windows 微软雅黑 → macOS 苹方 → macOS 华文黑体，
+  都找不到再用 Pillow 的 load_default()；也可用 NOTEPRESS_FONT_PATH 指定任意字体文件。
   注意：Linux 的 Noto Sans CJK 是 .ttc 集合字体，本项目取其第一个字形面，
   个别汉字字形可能偏日文字形，介意时设 NOTEPRESS_FONT_PATH 指向 SC 专用字体。
 - 成卡前会去掉 emoji 等卡片字体没有字形的字符，避免渲染出豆腐块；

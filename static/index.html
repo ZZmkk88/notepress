@@ -292,7 +292,7 @@ async function enterApp(mustChange) {
   $("#whoami").textContent = me.username;
   const badge = $("#llmBadge");
   if (me.llm_configured) { badge.textContent = "AI 写稿已接通"; badge.classList.add("ok"); }
-  else badge.textContent = "示例模式：未配置 AI 接口，写稿为内置示例稿";
+  else badge.textContent = "演示模式：未配置 AI 接口，写稿为内置示例稿";
   if (mustChange ?? me.must_change) $("#pwBanner").classList.remove("hidden");
   refreshTopics(); refreshDrafts(); refreshWords();
 }
@@ -316,7 +316,7 @@ async function refreshTopics() {
   topics = d.topics;
   $("#topicList").innerHTML = topics.map(t => `
     <div class="item"><div class="grow">${esc(t.title)}
-      <span class="muted">${t.source === "seed" ? "· 种子选题" : t.source === "ai" ? "· AI 扩题" : ""}</span></div>
+      <span class="muted">${t.source === "seed" ? "· 种子选题" : ""}</span></div>
       <button onclick="useTopic(${t.id})">写稿</button>
       <button onclick="delTopic(${t.id})">删除</button></div>`).join("") || '<p class="muted">还没有选题</p>';
   $("#studioTopicSel").innerHTML = '<option value="">从选题库选…</option>' +
@@ -334,7 +334,7 @@ $("#expandBtn").onclick = async () => {
   $("#expandBtn").disabled = true;
   try {
     const r = await api("/api/topics/expand", { method: "POST", body: JSON.stringify({ direction: d }) });
-    $("#expandHint").textContent = r.demo ? "示例模式给出的候选" : "";
+    $("#expandHint").textContent = r.demo ? "演示模式给出的候选" : "";
     const box = $("#expandList");
     box.replaceChildren();
     (r.candidates || []).forEach(c => {
@@ -382,7 +382,7 @@ $("#genBtn").onclick = async () => {
     $("#genTitleCustom").value = "";
     $("#genBody").value = r.body;
     $("#genTags").value = r.tags.join(", ");
-    $("#genHint").textContent = r.demo ? "这是示例稿（未配置 AI 接口时的内置模板）" : "";
+    $("#genHint").textContent = r.demo ? "这是演示稿（未配置 AI 接口时的内置模板）" : "";
     showHits("#genHits", r.banned_hits || []);
     syncCounts();
   } catch (e) { alert(e.message); } finally { $("#genBtn").disabled = false; $("#genHint").textContent = $("#genHint").textContent; }

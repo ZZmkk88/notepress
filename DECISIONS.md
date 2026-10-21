@@ -24,3 +24,14 @@
   ② 删除草稿同步删卡片与封面文件（文件名只取 basename 防路径穿越），
   卡片下载先查草稿、不存在直接 404；③ 封面上传先判 file.size 再读，
   size 不可用时最多读 10MB+1 字节兜底。
+- D-11 TASK-072/075 审查 P2 收口（main 正经实现）：前端"示例模式"统一为"演示模式"、
+  删掉从未出现的"AI 扩题"来源标签；演示写稿正文超 1000 字返回 400（不截断）；
+  AI 返回的标题/标签只要有一条超限就 502（不再静默丢弃/放行）；无效 topic_id
+  建草稿返回 400；render 封面路径取 basename；NOTES 补 python-multipart、
+  字体顺序与 _FONT_CANDIDATES 对齐；README 测试节写明先装 requirements.txt。
+- TASK-066 整支关闭不合并：分支基座旧（merge-base 29191e17，落后 main 1 提交），
+  其 P2-9（封面先 read 再限 10MB）、P2-10（删草稿不删媒体文件）已被 TASK-064 的 D-10
+  解决，属过期项；其余 8 条 P2 与 TASK-072/075 同义重复。
+- TASK-072/075 不采纳关闭：① 072-P2-3 / 075-P2-10（test_app.py 里的假 <redacted> key）
+  ——禁止改测试文件（口径总表第 17 条测试红线），永久关闭；② 075-P2-11
+  （TestClient httpx2 弃用警告）——测试全过，不为此改 requirements 版本号，关闭。

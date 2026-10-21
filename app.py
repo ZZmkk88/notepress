@@ -298,7 +298,7 @@ def demo_generate(topic: str, tone: str):
             f"今天分享一个普通人也能上手的 AI 用法：{topic}。\n\n"
             "先说结论：不用学代码，不用背命令，把需求说清楚就行。\n\n"
             "【准备】\n1. 一个能用的 AI 对话工具\n2. 把你的原始材料（文字、表格或照片）准备好\n3. 一句话说清你想要的结果\n\n"
-            "【步骤】\n第一步，把材料发给 AI，并告诉它你的身份和场景。\n"
+            "【步骤】\n先把材料发给 AI，并告诉它你的身份和场景。\n"
             "第二步，让它先给一版结果，不要急着用。\n"
             "第三步，指出不满意的地方，让它按你的要求改。\n"
             "第四步，把最终版存下来，下次同类任务直接套这个说法。\n\n"
@@ -310,7 +310,7 @@ def demo_generate(topic: str, tone: str):
             "以前这类事我都是手动慢慢磨，费时还容易出错。这次把材料丢给 AI，"
             "先让它给一版，我再逐句挑毛病让它改，前后不到十分钟就搞定了。\n\n"
             "最惊喜的是，它给的版本里有两个我自己想不到的说法；"
-            "最需要提醒的是，第一版千万别直接用，细节一定要自己核对一遍。\n\n"
+            "最需要提醒的是，初版千万别直接用，细节一定要自己核对一遍。\n\n"
             "我的用法很简单：说清场景、给足材料、逐轮修改。"
             "普通人用 AI，不用追求多高级，把手头一件小事做快做顺，就是赚到。\n\n"
             "你们用 AI 做过最省事的一件事是什么？"
@@ -319,7 +319,7 @@ def demo_generate(topic: str, tone: str):
             f"关于{topic}，我先替你们踩了三个坑，看完再上手。\n\n"
             "坑一：一上来就问得很笼统。AI 给的回答放之四海皆准，等于没帮上忙。"
             "正确做法是把场景、材料、想要的格式一次说清。\n\n"
-            "坑二：第一版直接拿去用。AI 偶尔会一本正经地编细节，数字和名字一定要自己核对。\n\n"
+            "坑二：初版直接拿去用。AI 偶尔会一本正经地编细节，数字和名字一定要自己核对。\n\n"
             "坑三：把隐私原样发出去。身份证号、公司内部数据、客户信息，发之前先打码或替换。\n\n"
             "避开这三个坑，AI 就是个好帮手；避不开，再强的工具也白搭。\n\n"
             "你还踩过什么坑？评论区补充，我整理成下期。"
@@ -349,7 +349,10 @@ def ai_expand(direction: str):
 
 def ai_generate(topic: str, tone: str):
     if not llm_configured():
-        return demo_generate(topic, tone)
+        out = demo_generate(topic, tone)
+        if len(out["body"]) > BODY_LIMIT:
+            raise HTTPException(400, f"演示稿正文 {len(out['body'])} 字，超过 {BODY_LIMIT} 字上限")
+        return out
     tone_label = TONES.get(tone, "干货清单")
     prompt = (
         "你是小红书图文文案写手，赛道「AI 工具平民玩法」，语气亲切接地气。\n"
@@ -365,7 +368,10 @@ def ai_generate(topic: str, tone: str):
     except Exception:
         raise HTTPException(502, "AI 返回格式不对，请重试")
     titles = [str(t).strip() for t in out.get("titles", []) if str(t).strip()]
-    titles = [t for t in titles if len(t) <= TITLE_LIMIT][:3]
+    over = next((t for t in titles if len(t) > TITLE_LIMIT), None)
+    if over:
+        raise HTTPException(502, f"AI 返回的标题超过 20 字（{over[:12]}…），请重试")
+    titles = titles[:3]
     if not titles:
         raise HTTPException(502, "AI 返回的标题都超过 20 字，请重试")
     body = str(out.get("body", "")).strip()
@@ -374,6 +380,9 @@ def ai_generate(topic: str, tone: str):
     if len(body) > BODY_LIMIT:
         raise HTTPException(502, f"AI 返回的正文 {len(body)} 字，超过 {BODY_LIMIT} 字上限，请重试")
     tags = [str(t).strip().lstrip("#") for t in out.get("tags", []) if str(t).strip()]
+    over_tag = next((t for t in tags if len(t) > TAG_LIMIT), None)
+    if over_tag:
+        raise HTTPException(502, f"AI 返回的标签超过 {TAG_LIMIT} 字（{over_tag[:12]}…），请重试")
     tags = tags[:MAX_TAGS]
     return {"titles": titles, "body": body, "tags": tags, "demo": False}
 
@@ -518,7 +527,7 @@ def render_cards(draft) -> list:
     cover_path = out_dir / "card_1.png"
     made_cover = False
     if draft["cover_mode"] == "upload" and draft["cover_file"]:
-        src = MEDIA_DIR / "covers" / draft["cover_file"]
+        src = MEDIA_DIR / "covers" / Path(draft["cover_file"]).name
         if src.exists():
             img = Image.open(src).convert("RGB")
             scale = max(CARD_W / img.width, CARD_H / img.height)
@@ -864,6 +873,11 @@ async def create_draft(request: Request, user=Depends(get_current_user)):
     if template not in TEMPLATES:
         template = "berry"
     topic_id = data.get("topic_id") or None
+    if topic_id is not None:
+        with get_db() as conn:
+            trow = conn.execute("SELECT id FROM topics WHERE id = ?", (topic_id,)).fetchone()
+        if trow is None:
+            raise HTTPException(400, "选题不存在")
     with get_db() as conn:
         cur = conn.execute(
             "INSERT INTO drafts (topic_id, title, body, tags, tone, template, created_at, updated_at) "
