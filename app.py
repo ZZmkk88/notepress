@@ -478,6 +478,30 @@ def _cards_dir(draft_id):
     return d
 
 
+def clear_card_files(draft_id):
+    """内容或封面变了就丢掉旧卡，避免预览和导出还拿着上一版。"""
+    d = MEDIA_DIR / "cards" / str(draft_id)
+    if not d.exists():
+        return
+    for old in d.glob("card_*.png"):
+        old.unlink()
+    try:
+        d.rmdir()
+    except OSError:
+        pass
+
+
+def clear_cover_files(draft_id, cover_file=""):
+    names = [f"{draft_id}.png", f"{draft_id}.jpg"]
+    extra = Path(str(cover_file or "")).name
+    if extra and extra not in names and extra not in (".", ".."):
+        names.append(extra)
+    for name in names:
+        p = MEDIA_DIR / "covers" / name
+        if p.is_file():
+            p.unlink()
+
+
 def render_cards(draft) -> list:
     """把草稿渲染成卡片 PNG，返回文件名列表（card_1.png ...）。"""
     tpl = TEMPLATES.get(draft["template"], TEMPLATES["berry"])
@@ -860,13 +884,18 @@ async def update_draft(draft_id: int, request: Request, user=Depends(get_current
         title = str(data.get("title", cur["title"])).strip() if "title" in data else cur["title"]
         body = str(data.get("body", cur["body"])) if "body" in data else cur["body"]
         validate_title_body(title, body)
-        tags = _clean_tags(data["tags"]) if "tags" in data else json.loads(cur["tags"] or "[]")
+        old_tags = json.loads(cur["tags"] or "[]")
+        tags = _clean_tags(data["tags"]) if "tags" in data else old_tags
         status = str(data.get("status", cur["status"]))
         if status not in ("draft", "ready", "published"):
             raise HTTPException(400, "状态不对")
         template = str(data.get("template", cur["template"]))
         if template not in TEMPLATES:
             raise HTTPException(400, "模板不对")
+        content_changed = (
+            title != cur["title"] or body != cur["body"]
+            or tags != old_tags or template != cur["template"]
+        )
         conn.execute(
             "UPDATE drafts SET title=?, body=?, tags=?, status=?, template=?, "
             "published_url=?, published_at=?, updated_at=? WHERE id=?",
@@ -875,13 +904,21 @@ async def update_draft(draft_id: int, request: Request, user=Depends(get_current
              str(data.get("published_at", cur["published_at"])),
              now_str(), draft_id),
         )
+    if content_changed:
+        clear_card_files(draft_id)
     return {"ok": True}
 
 
 @app.delete("/api/drafts/{draft_id}")
 def delete_draft(draft_id: int, user=Depends(get_current_user)):
+    cover = ""
     with get_db() as conn:
+        row = conn.execute("SELECT cover_file FROM drafts WHERE id = ?", (draft_id,)).fetchone()
+        if row is not None:
+            cover = row["cover_file"] or ""
         conn.execute("DELETE FROM drafts WHERE id = ?", (draft_id,))
+    clear_card_files(draft_id)
+    clear_cover_files(draft_id, cover)
     return {"ok": True}
 
 
@@ -908,6 +945,10 @@ async def render_draft(draft_id: int, request: Request, user=Depends(get_current
 
 @app.get("/api/drafts/{draft_id}/cards/{n}")
 def get_card(draft_id: int, n: int, user=Depends(get_current_user)):
+    with get_db() as conn:
+        row = conn.execute("SELECT id FROM drafts WHERE id = ?", (draft_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "草稿不存在")
     p = MEDIA_DIR / "cards" / str(draft_id) / f"card_{n}.png"
     if not p.exists():
         raise HTTPException(404, "卡片不存在，先生成卡片")
@@ -917,9 +958,13 @@ def get_card(draft_id: int, n: int, user=Depends(get_current_user)):
 @app.post("/api/drafts/{draft_id}/cover")
 async def upload_cover(draft_id: int, file: UploadFile = File(...),
                        user=Depends(get_current_user)):
-    raw = await file.read()
-    if len(raw) > 10 * 1024 * 1024:
-        raise HTTPException(400, f"图片超过上限 10MB（当前 {len(raw) / 1024 / 1024:.1f}MB）")
+    limit = 10 * 1024 * 1024
+    size = file.size
+    if size is not None and size > limit:
+        raise HTTPException(400, f"图片超过上限 10MB（当前 {size / 1024 / 1024:.1f}MB）")
+    raw = await file.read(limit + 1)
+    if len(raw) > limit:
+        raise HTTPException(400, "图片超过上限 10MB")
     try:
         img = Image.open(io.BytesIO(raw))
         img.verify()
@@ -936,6 +981,7 @@ async def upload_cover(draft_id: int, file: UploadFile = File(...),
     with get_db() as conn:
         conn.execute("UPDATE drafts SET cover_mode='upload', cover_file=?, updated_at=? WHERE id=?",
                      (name, now_str(), draft_id))
+    clear_card_files(draft_id)
     return {"ok": True, "cover_file": name}
 
 
@@ -989,9 +1035,7 @@ def export_draft(draft_id: int, user=Depends(get_current_user)):
         if row is None:
             raise HTTPException(404, "草稿不存在")
         draft = dict(row)
-    files = list_card_files(draft_id)
-    if not files:
-        files = render_cards(draft)
+    files = render_cards(draft)
     tags = json.loads(draft["tags"] or "[]")
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
