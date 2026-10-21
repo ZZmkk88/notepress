@@ -349,7 +349,12 @@ def ai_expand(direction: str):
 
 def ai_generate(topic: str, tone: str):
     if not llm_configured():
-        return demo_generate(topic, tone)
+        result = demo_generate(topic, tone)
+        # 演示稿与草稿同一硬上限：超限报错，不截断
+        for title in result["titles"]:
+            validate_title_body(title, "")
+        validate_title_body("", result["body"])
+        return result
     tone_label = TONES.get(tone, "干货清单")
     prompt = (
         "你是小红书图文文案写手，赛道「AI 工具平民玩法」，语气亲切接地气。\n"
