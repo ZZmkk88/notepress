@@ -453,6 +453,25 @@ def wrap_text(draw, text, font, max_width):
     return lines
 
 
+def fit_line(draw, text, font, max_width):
+    if draw.textlength(text, font=font) <= max_width:
+        return text
+    ell = "…"
+    if draw.textlength(ell, font=font) > max_width:
+        return ""
+    best = ""
+    lo, hi = 0, len(text)
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        cand = text[:mid] + ell
+        if draw.textlength(cand, font=font) <= max_width:
+            best = cand
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return best
+
+
 def _cards_dir(draft_id):
     d = MEDIA_DIR / "cards" / str(draft_id)
     d.mkdir(parents=True, exist_ok=True)
@@ -510,9 +529,16 @@ def render_cards(draft) -> list:
             d.text((84, ty), ln, font=f_title, fill=tpl["text"])
             ty += 138
         f_sub = get_font(42)
-        tag_line = "  ".join("#" + t for t in tags[:4])
+        safe_tags = []
+        for t in tags[:4]:
+            s = sanitize_for_card(str(t)).strip()
+            if s:
+                safe_tags.append(s)
+        tag_line = "  ".join("#" + t for t in safe_tags)
         if tag_line:
-            d.text((84, CARD_H - 240), tag_line, font=f_sub, fill=tpl["sub"])
+            shown = fit_line(d, tag_line, f_sub, CARD_W - 168)
+            if shown:
+                d.text((84, CARD_H - 240), shown, font=f_sub, fill=tpl["sub"])
         d.text((84, CARD_H - 150), "notepress 笔记工坊", font=f_sub, fill=tpl["sub"])
         img.save(cover_path)
         files.append("card_1.png")
@@ -784,7 +810,9 @@ def _clean_tags(raw):
                 if len(s) > TAG_LIMIT:
                     raise HTTPException(400, f"标签超过上限 {TAG_LIMIT} 字（当前 {len(s)} 字）")
                 tags.append(s)
-    return tags[:MAX_TAGS]
+    if len(tags) > MAX_TAGS:
+        raise HTTPException(400, f"标签超过上限 {MAX_TAGS} 个（当前 {len(tags)} 个）")
+    return tags
 
 
 @app.post("/api/drafts")
