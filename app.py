@@ -512,7 +512,17 @@ def render_cards(draft) -> list:
         f_sub = get_font(42)
         tag_line = "  ".join("#" + t for t in tags[:4])
         if tag_line:
-            d.text((84, CARD_H - 240), tag_line, font=f_sub, fill=tpl["sub"])
+            max_w = CARD_W - 168
+            # 单行放得下时位置不变；放不下就换行，避免画到右边界外被裁切
+            if d.textlength(tag_line, font=f_sub) <= max_w:
+                d.text((84, CARD_H - 240), tag_line, font=f_sub, fill=tpl["sub"])
+            else:
+                tag_lines = wrap_text(d, tag_line, f_sub, max_w)
+                line_h = 56
+                ty = (CARD_H - 150) - 16 - line_h * len(tag_lines)
+                for ln in tag_lines:
+                    d.text((84, ty), ln, font=f_sub, fill=tpl["sub"])
+                    ty += line_h
         d.text((84, CARD_H - 150), "notepress 笔记工坊", font=f_sub, fill=tpl["sub"])
         img.save(cover_path)
         files.append("card_1.png")
