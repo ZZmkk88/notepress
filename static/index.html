@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>notepress · 笔记工坊</title>
+<style>
+  :root { --berry:#ff2442; --berry-dark:#d91e38; --ink:#2b2320; --paper:#fff9f5; --card:#ffffff;
+          --line:#f0ddd2; --muted:#9a8a80; --ok:#1f9d74; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif;
+         background:var(--paper); color:var(--ink); }
+  button { cursor:pointer; border:1px solid var(--line); background:#fff; border-radius:10px;
+           padding:7px 14px; font-size:14px; }
+  button.primary { background:var(--berry); border-color:var(--berry); color:#fff; }
+  button.primary:hover { background:var(--berry-dark); }
+  button:disabled { opacity:.5; cursor:wait; }
+  input, select, textarea { border:1px solid var(--line); border-radius:10px; padding:8px 10px;
+           font-size:14px; background:#fff; font-family:inherit; }
+  textarea { width:100%; line-height:1.6; }
+  .hidden { display:none !important; }
+
+  /* 登录 */
+  #loginView { max-width:360px; margin:12vh auto; background:var(--card); padding:32px;
+               border-radius:18px; border:1px solid var(--line); }
+  #loginView h1 { margin:0 0 4px; font-size:26px; }
+  #loginView h1 span { color:var(--berry); }
+  #loginView p { color:var(--muted); margin:0 0 18px; font-size:13px; }
+  #loginView input { width:100%; margin-bottom:12px; }
+  #loginView button { width:100%; }
+  .err { color:var(--berry-dark); font-size:13px; min-height:18px; margin-top:8px; }
+
+  /* 主框架 */
+  header.top { display:flex; align-items:center; gap:14px; padding:12px 20px;
+               background:var(--card); border-bottom:1px solid var(--line); }
+  header.top .logo { font-size:20px; font-weight:700; }
+  header.top .logo span { color:var(--berry); }
+  .badge { font-size:12px; padding:3px 10px; border-radius:20px; background:#fff1f3; color:var(--berry-dark); }
+  .badge.ok { background:#e8f7f1; color:var(--ok); }
+  header.top .sp { flex:1; }
+  .layout { display:flex; min-height:calc(100vh - 57px); }
+  nav.side { width:150px; padding:16px 10px; border-right:1px solid var(--line); background:#fffdfb; }
+  nav.side button { display:block; width:100%; text-align:left; margin-bottom:8px; border:none; background:transparent; }
+  nav.side button.active { background:#fff1f3; color:var(--berry-dark); font-weight:600; }
+  main { flex:1; padding:20px; max-width:1060px; }
+  .banner { background:#fff4e0; border:1px solid #f2d38a; border-radius:12px; padding:10px 14px;
+            margin-bottom:16px; font-size:14px; display:flex; gap:10px; align-items:center; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:16px; }
+  .card h3 { margin:0 0 12px; font-size:16px; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .muted { color:var(--muted); font-size:13px; }
+  .count.over { color:var(--berry-dark); font-weight:700; }
+  .item { border:1px solid var(--line); border-radius:12px; padding:10px 12px; margin-bottom:8px;
+          display:flex; gap:10px; align-items:center; background:#fff; }
+  .item .grow { flex:1; }
+  .status { font-size:12px; padding:2px 9px; border-radius:20px; background:#f3ece7; }
+  .status.ready { background:#fff4e0; }
+  .status.published { background:#e8f7f1; color:var(--ok); }
+  .hit { display:inline-block; background:#ffe3e8; color:var(--berry-dark); border-radius:8px;
+         padding:2px 8px; margin:2px 4px 2px 0; font-size:13px; }
+  .cards-preview { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
+  .cards-preview img { width:150px; border-radius:10px; border:1px solid var(--line); }
+  .titleopt { display:block; padding:8px 10px; border:1px solid var(--line); border-radius:10px; margin-bottom:8px; cursor:pointer; }
+  .titleopt:has(input:checked) { border-color:var(--berry); background:#fff7f8; }
+  .word { display:inline-flex; gap:6px; align-items:center; background:#f7efe9; border-radius:8px;
+          padding:3px 6px 3px 10px; margin:2px 4px 2px 0; font-size:13px; }
+  .word button { padding:0 6px; border:none; background:transparent; color:var(--berry-dark); }
+  label.lbl { font-size:13px; color:var(--muted); display:block; margin:10px 0 4px; }
+</style>
+</head>
+<body>
+
+<!-- 登录 -->
+<div id="loginView">
+  <h1>note<span>press</span></h1>
+  <p>笔记工坊 · 小红书图文内容工作台</p>
+  <input id="loginUser" placeholder="用户名" autocomplete="username">
+  <input id="loginPass" type="password" placeholder="密码" autocomplete="current-password">
+  <button class="primary" id="loginBtn">登录</button>
+  <div class="err" id="loginErr"></div>
+</div>
+
+<!-- 主界面 -->
+<div id="appView" class="hidden">
+  <header class="top">
+    <div class="logo">note<span>press</span></div>
+    <span id="llmBadge" class="badge">…</span>
+    <div class="sp"></div>
+    <span class="muted" id="whoami"></span>
+    <button id="logoutBtn">退出</button>
+  </header>
+  <div class="layout">
+    <nav class="side">
+      <button data-view="topics" class="active">选题库</button>
+      <button data-view="studio">写稿台</button>
+      <button data-view="drafts">草稿箱</button>
+      <button data-view="settings">设置</button>
+    </nav>
+    <main>
+      <div id="pwBanner" class="banner hidden">
+        <span>你还在用默认密码，建议尽快修改（不改也能正常用）。</span>
+        <button id="bannerGo">去改密</button>
+        <button id="bannerHide">稍后再说</button>
+      </div>
+
+      <!-- 选题库 -->
+      <section id="view-topics">
+        <div class="card">
+          <h3>记一个选题</h3>
+          <div class="row">
+            <input id="topicInput" style="flex:1" placeholder="比如：用 AI 帮我把一周菜谱排好" maxlength="120">
+            <button class="primary" id="topicAdd">添加</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3>AI 扩题</h3>
+          <div class="row">
+            <input id="expandInput" style="flex:1" placeholder="给一个方向词，比如：带娃、做表格、写邮件">
+            <button id="expandBtn">生成候选</button>
+            <span class="muted" id="expandHint"></span>
+          </div>
+          <div id="expandList" style="margin-top:10px"></div>
+        </div>
+        <div class="card">
+          <h3>选题列表</h3>
+          <div id="topicList"></div>
+        </div>
+      </section>
+
+      <!-- 写稿台 -->
+      <section id="view-studio" class="hidden">
+        <div class="card">
+          <h3>写稿台</h3>
+          <label class="lbl">选题（可从选题库选，也可直接填）</label>
+          <div class="row">
+            <select id="studioTopicSel" style="flex:1"></select>
+            <input id="studioTopicText" style="flex:1" placeholder="或直接输入选题">
+          </div>
+          <div class="row" style="margin-top:10px">
+            <label>语气
+              <select id="studioTone">
+                <option value="checklist">干货清单</option>
+                <option value="experience">亲身体验</option>
+                <option value="pitfall">避坑故事</option>
+              </select>
+            </label>
+            <label>卡片模板
+              <select id="studioTemplate">
+                <option value="berry">莓红</option>
+                <option value="mint">薄荷</option>
+                <option value="ink">墨夜</option>
+              </select>
+            </label>
+            <button class="primary" id="genBtn">生成稿件</button>
+            <span class="muted" id="genHint"></span>
+          </div>
+        </div>
+        <div class="card hidden" id="genResult">
+          <h3>生成结果（可改）</h3>
+          <label class="lbl">标题候选（选一个；标题 <span id="titleCount">0</span>/20 字）</label>
+          <div id="titleOpts"></div>
+          <input id="genTitleCustom" placeholder="或自己写标题（最多 20 字）" style="width:100%">
+          <label class="lbl">正文（<span id="bodyCount">0</span>/1000 字）</label>
+          <textarea id="genBody" rows="12"></textarea>
+          <label class="lbl">话题标签（逗号分隔，不用带 #）</label>
+          <input id="genTags" style="width:100%">
+          <div class="row" style="margin-top:10px">
+            <button id="genCheck">违禁词自查</button>
+            <button class="primary" id="genSave">存入草稿箱</button>
+            <span id="genHits"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 草稿箱 -->
+      <section id="view-drafts" class="hidden">
+        <div class="card">
+          <h3>草稿箱</h3>
+          <div class="row">
+            <select id="draftFilter">
+              <option value="">全部状态</option>
+              <option value="draft">草稿</option>
+              <option value="ready">待发布</option>
+              <option value="published">已发布</option>
+            </select>
+            <button id="draftRefresh">刷新</button>
+          </div>
+          <div id="draftList" style="margin-top:10px"></div>
+        </div>
+        <div class="card hidden" id="draftEditor">
+          <h3>编辑草稿</h3>
+          <label class="lbl">标题（<span id="edTitleCount">0</span>/20）</label>
+          <input id="edTitle" style="width:100%">
+          <label class="lbl">正文（<span id="edBodyCount">0</span>/1000）</label>
+          <textarea id="edBody" rows="12"></textarea>
+          <label class="lbl">标签（逗号分隔）</label>
+          <input id="edTags" style="width:100%">
+          <div class="row" style="margin-top:10px">
+            <label>状态
+              <select id="edStatus">
+                <option value="draft">草稿</option>
+                <option value="ready">待发布</option>
+                <option value="published">已发布</option>
+              </select>
+            </label>
+            <label>模板
+              <select id="edTemplate">
+                <option value="berry">莓红</option>
+                <option value="mint">薄荷</option>
+                <option value="ink">墨夜</option>
+              </select>
+            </label>
+            <button class="primary" id="edSave">保存</button>
+            <button id="edCheck">违禁词自查</button>
+            <span id="edHits"></span>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <button id="edRender">生成卡片</button>
+            <label class="row" style="gap:6px">自备封面图 <input type="file" id="edCover" accept="image/*"></label>
+            <button id="edCoverBtn">上传封面</button>
+            <button id="edExport">导出发布包</button>
+            <button id="edDelete">删除草稿</button>
+          </div>
+          <label class="lbl">已发布链接回填</label>
+          <div class="row">
+            <input id="edPubUrl" style="flex:1" placeholder="发布后把笔记链接贴回来">
+            <button id="edPubSave">回填</button>
+          </div>
+          <div class="cards-preview" id="edCards"></div>
+        </div>
+      </section>
+
+      <!-- 设置 -->
+      <section id="view-settings" class="hidden">
+        <div class="card">
+          <h3>修改密码</h3>
+          <div class="row">
+            <input id="pwOld" type="password" placeholder="原密码">
+            <input id="pwNew" type="password" placeholder="新密码（至少 6 位）">
+            <button class="primary" id="pwBtn">改密</button>
+            <span class="muted" id="pwHint"></span>
+          </div>
+          <p class="muted">改密成功后，其他设备上的登录会自动失效，本次登录保留。</p>
+        </div>
+        <div class="card">
+          <h3>违禁词表（自查只提示、不拦截）</h3>
+          <div class="row">
+            <input id="bwInput" placeholder="新增违禁词">
+            <button id="bwAdd">添加</button>
+          </div>
+          <div id="bwList" style="margin-top:10px"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let token = localStorage.getItem("np_token") || "";
+let topics = [], currentDraft = null;
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { ...opts, headers: { "Content-Type": "application/json",
+    ...(token ? { Authorization: "Bearer " + token } : {}), ...(opts.headers || {}) } });
+  if (r.status === 401 && token) { logout(); throw new Error("登录已失效"); }
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || ("请求失败 " + r.status));
+  return data;
+}
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+/* ---------- 登录 ---------- */
+async function doLogin() {
+  $("#loginErr").textContent = "";
+  try {
+    const d = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: $("#loginUser").value, password: $("#loginPass").value }) })
+      .then(async r => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.detail || "登录失败"); return j; });
+    token = d.token; localStorage.setItem("np_token", token);
+    enterApp(d.must_change);
+  } catch (e) { $("#loginErr").textContent = e.message; }
+}
+function logout() {
+  if (token) fetch("/api/logout", { method: "POST", headers: { Authorization: "Bearer " + token } }).catch(() => {});
+  token = ""; localStorage.removeItem("np_token");
+  $("#appView").classList.add("hidden"); $("#loginView").classList.remove("hidden");
+}
+async function enterApp(mustChange) {
+  $("#loginView").classList.add("hidden"); $("#appView").classList.remove("hidden");
+  const me = await api("/api/me");
+  $("#whoami").textContent = me.username;
+  const badge = $("#llmBadge");
+  if (me.llm_configured) { badge.textContent = "AI 写稿已接通"; badge.classList.add("ok"); }
+  else badge.textContent = "示例模式：未配置 AI 接口，写稿为内置示例稿";
+  if (mustChange ?? me.must_change) $("#pwBanner").classList.remove("hidden");
+  refreshTopics(); refreshDrafts(); refreshWords();
+}
+$("#loginBtn").onclick = doLogin;
+$("#loginPass").onkeydown = e => { if (e.key === "Enter") doLogin(); };
+$("#logoutBtn").onclick = logout;
+$("#bannerHide").onclick = () => $("#pwBanner").classList.add("hidden");
+$("#bannerGo").onclick = () => { switchView("settings"); $("#pwBanner").classList.add("hidden"); };
+
+/* ---------- 视图切换 ---------- */
+function switchView(name) {
+  document.querySelectorAll("nav.side button").forEach(b => b.classList.toggle("active", b.dataset.view === name));
+  ["topics", "studio", "drafts", "settings"].forEach(v =>
+    $("#view-" + v).classList.toggle("hidden", v !== name));
+}
+document.querySelectorAll("nav.side button").forEach(b => b.onclick = () => switchView(b.dataset.view));
+
+/* ---------- 选题 ---------- */
+async function refreshTopics() {
+  const d = await api("/api/topics");
+  topics = d.topics;
+  $("#topicList").innerHTML = topics.map(t => `
+    <div class="item"><div class="grow">${esc(t.title)}
+      <span class="muted">${t.source === "seed" ? "· 种子选题" : t.source === "ai" ? "· AI 扩题" : ""}</span></div>
+      <button onclick="useTopic(${t.id})">写稿</button>
+      <button onclick="delTopic(${t.id})">删除</button></div>`).join("") || '<p class="muted">还没有选题</p>';
+  $("#studioTopicSel").innerHTML = '<option value="">从选题库选…</option>' +
+    topics.map(t => `<option value="${t.id}">${esc(t.title)}</option>`).join("");
+}
+window.useTopic = id => { $("#studioTopicSel").value = id; $("#studioTopicText").value = ""; switchView("studio"); };
+window.delTopic = async id => { await api("/api/topics/" + id, { method: "DELETE" }); refreshTopics(); };
+$("#topicAdd").onclick = async () => {
+  const v = $("#topicInput").value.trim(); if (!v) return;
+  try { await api("/api/topics", { method: "POST", body: JSON.stringify({ title: v }) });
+    $("#topicInput").value = ""; refreshTopics(); } catch (e) { alert(e.message); }
+};
+$("#expandBtn").onclick = async () => {
+  const d = $("#expandInput").value.trim(); if (!d) return;
+  $("#expandBtn").disabled = true;
+  try {
+    const r = await api("/api/topics/expand", { method: "POST", body: JSON.stringify({ direction: d }) });
+    $("#expandHint").textContent = r.demo ? "示例模式给出的候选" : "";
+    $("#expandList").innerHTML = r.candidates.map(c => `
+      <div class="item"><div class="grow">${esc(c)}</div>
+      <button onclick='addCandidate(this, ${JSON.stringify(c)})'>加入选题库</button></div>`).join("");
+  } catch (e) { alert(e.message); } finally { $("#expandBtn").disabled = false; }
+};
+window.addCandidate = async (btn, title) => {
+  await api("/api/topics", { method: "POST", body: JSON.stringify({ title }) });
+  btn.closest(".item").remove(); refreshTopics();
+};
+
+/* ---------- 写稿 ---------- */
+function syncCounts() {
+  const t = document.querySelector("input[name=tt]:checked");
+  const custom = $("#genTitleCustom").value.trim();
+  const titleLen = custom ? custom.length : (t ? t.value.length : 0);
+  $("#titleCount").textContent = titleLen;
+  $("#titleCount").parentElement.classList.toggle("over", titleLen > 20);
+  $("#bodyCount").textContent = $("#genBody").value.length;
+  $("#bodyCount").parentElement.classList.toggle("over", $("#genBody").value.length > 1000);
+}
+$("#genBtn").onclick = async () => {
+  const sel = $("#studioTopicSel").value, text = $("#studioTopicText").value.trim();
+  const payload = { tone: $("#studioTone").value };
+  if (text) payload.topic = text; else if (sel) payload.topic_id = Number(sel);
+  else { alert("先选或填一个选题"); return; }
+  $("#genBtn").disabled = true; $("#genHint").textContent = "生成中…";
+  try {
+    const r = await api("/api/generate", { method: "POST", body: JSON.stringify(payload) });
+    $("#genResult").classList.remove("hidden");
+    $("#titleOpts").innerHTML = r.titles.map((t, i) => `
+      <label class="titleopt"><input type="radio" name="tt" value="${esc(t)}" ${i === 0 ? "checked" : ""}> ${esc(t)}
+        <span class="muted">${t.length} 字</span></label>`).join("");
+    $("#genTitleCustom").value = "";
+    $("#genBody").value = r.body;
+    $("#genTags").value = r.tags.join(", ");
+    $("#genHint").textContent = r.demo ? "这是示例稿（未配置 AI 接口时的内置模板）" : "";
+    showHits("#genHits", r.banned_hits || []);
+    syncCounts();
+  } catch (e) { alert(e.message); } finally { $("#genBtn").disabled = false; $("#genHint").textContent = $("#genHint").textContent; }
+};
+document.addEventListener("change", e => { if (e.target.name === "tt") syncCounts(); });
+$("#genBody").oninput = syncCounts; $("#genTitleCustom").oninput = syncCounts;
+function currentGenTitle() {
+  const custom = $("#genTitleCustom").value.trim();
+  if (custom) return custom;
+  const t = document.querySelector("input[name=tt]:checked");
+  return t ? t.value : "";
+}
+function showHits(sel, hits) {
+  $(sel).innerHTML = hits.length
+    ? "违禁词命中：" + hits.map(h => `<span class="hit">${esc(h.word)}（标题${h.in_title}/正文${h.in_body}）</span>`).join("")
+    : '<span class="muted">未命中违禁词</span>';
+}
+async function runCheck(title, body, sel) {
+  const r = await api("/api/check", { method: "POST", body: JSON.stringify({ title, body }) });
+  showHits(sel, r.hits);
+}
+$("#genCheck").onclick = () => runCheck(currentGenTitle(), $("#genBody").value, "#genHits").catch(e => alert(e.message));
+$("#genSave").onclick = async () => {
+  const sel = $("#studioTopicSel").value, text = $("#studioTopicText").value.trim();
+  try {
+    const d = await api("/api/drafts", { method: "POST", body: JSON.stringify({
+      title: currentGenTitle(), body: $("#genBody").value,
+      tags: $("#genTags").value.split(/[,，]/).map(s => s.trim()).filter(Boolean),
+      tone: $("#studioTone").value, template: $("#studioTemplate").value,
+      topic_id: !text && sel ? Number(sel) : null }) });
+    alert("已存入草稿箱"); switchView("drafts"); await refreshDrafts(); openDraft(d.id);
+  } catch (e) { alert(e.message); }
+};
+
+/* ---------- 草稿 ---------- */
+const STATUS_LABEL = { draft: "草稿", ready: "待发布", published: "已发布" };
+async function refreshDrafts() {
+  const f = $("#draftFilter").value;
+  const d = await api("/api/drafts" + (f ? "?status=" + f : ""));
+  $("#draftList").innerHTML = d.drafts.map(x => `
+    <div class="item"><div class="grow"><b>${esc(x.title) || "（无标题）"}</b>
+      <span class="status ${x.status}">${STATUS_LABEL[x.status] || x.status}</span>
+      <div class="muted">${esc((x.tags || []).map(t => "#" + t).join(" "))} · 更新于 ${esc(x.updated_at || "")}</div></div>
+      <button onclick="openDraft(${x.id})">编辑</button></div>`).join("") || '<p class="muted">草稿箱是空的</p>';
+}
+$("#draftRefresh").onclick = refreshDrafts;
+$("#draftFilter").onchange = refreshDrafts;
+window.openDraft = async id => {
+  const d = await api("/api/drafts/" + id);
+  currentDraft = d;
+  $("#draftEditor").classList.remove("hidden");
+  $("#edTitle").value = d.title; $("#edBody").value = d.body;
+  $("#edTags").value = (d.tags || []).join(", ");
+  $("#edStatus").value = d.status; $("#edTemplate").value = d.template;
+  $("#edPubUrl").value = d.published_url || "";
+  $("#edHits").innerHTML = ""; edSync();
+  showCards(d);
+};
+function edSync() {
+  $("#edTitleCount").textContent = $("#edTitle").value.length;
+  $("#edBodyCount").textContent = $("#edBody").value.length;
+}
+$("#edTitle").oninput = edSync; $("#edBody").oninput = edSync;
+$("#edSave").onclick = async () => {
+  if (!currentDraft) return;
+  try {
+    await api("/api/drafts/" + currentDraft.id, { method: "PUT", body: JSON.stringify({
+      title: $("#edTitle").value, body: $("#edBody").value,
+      tags: $("#edTags").value.split(/[,，]/).map(s => s.trim()).filter(Boolean),
+      status: $("#edStatus").value, template: $("#edTemplate").value }) });
+    alert("已保存"); refreshDrafts();
+  } catch (e) { alert(e.message); }
+};
+$("#edCheck").onclick = () => runCheck($("#edTitle").value, $("#edBody").value, "#edHits").catch(e => alert(e.message));
+async function showCards(d) {
+  const box = $("#edCards"); box.innerHTML = "";
+  for (const name of (d.cards || [])) {
+    const n = name.split("_")[1].split(".")[0];
+    const r = await fetch(`/api/drafts/${d.id}/cards/${n}`, { headers: { Authorization: "Bearer " + token } });
+    if (!r.ok) continue;
+    const url = URL.createObjectURL(await r.blob());
+    const img = document.createElement("img"); img.src = url; box.appendChild(img);
+  }
+}
+$("#edRender").onclick = async () => {
+  if (!currentDraft) return;
+  await $("#edSave").onclick();
+  const r = await api("/api/drafts/" + currentDraft.id + "/render",
+    { method: "POST", body: JSON.stringify({ template: $("#edTemplate").value }) });
+  const d = await api("/api/drafts/" + currentDraft.id); currentDraft = d; showCards(d);
+  alert("已生成 " + r.count + " 张卡片");
+};
+$("#edCoverBtn").onclick = async () => {
+  if (!currentDraft) return;
+  const f = $("#edCover").files[0]; if (!f) { alert("先选一张图片"); return; }
+  const fd = new FormData(); fd.append("file", f);
+  const r = await fetch("/api/drafts/" + currentDraft.id + "/cover",
+    { method: "POST", headers: { Authorization: "Bearer " + token }, body: fd });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { alert(j.detail || "上传失败"); return; }
+  alert("封面已上传，重新生成卡片即可看到效果");
+};
+$("#edExport").onclick = async () => {
+  if (!currentDraft) return;
+  const r = await fetch("/api/drafts/" + currentDraft.id + "/export",
+    { method: "POST", headers: { Authorization: "Bearer " + token } });
+  if (!r.ok) { alert("导出失败"); return; }
+  const url = URL.createObjectURL(await r.blob());
+  const a = document.createElement("a"); a.href = url;
+  a.download = "notepress-" + currentDraft.id + ".zip"; a.click();
+  URL.revokeObjectURL(url);
+};
+$("#edPubSave").onclick = async () => {
+  if (!currentDraft) return;
+  await api("/api/drafts/" + currentDraft.id, { method: "PUT", body: JSON.stringify({
+    published_url: $("#edPubUrl").value.trim(),
+    published_at: new Date().toISOString().slice(0, 19).replace("T", " "),
+    status: "published" }) });
+  $("#edStatus").value = "published"; alert("已回填"); refreshDrafts();
+};
+$("#edDelete").onclick = async () => {
+  if (!currentDraft || !confirm("删除这篇草稿？")) return;
+  await api("/api/drafts/" + currentDraft.id, { method: "DELETE" });
+  currentDraft = null; $("#draftEditor").classList.add("hidden"); refreshDrafts();
+};
+
+/* ---------- 设置 ---------- */
+$("#pwBtn").onclick = async () => {
+  try {
+    await api("/api/change-password", { method: "POST", body: JSON.stringify({
+      old_password: $("#pwOld").value, new_password: $("#pwNew").value }) });
+    $("#pwHint").textContent = "改密成功";
+    $("#pwOld").value = $("#pwNew").value = "";
+  } catch (e) { $("#pwHint").textContent = e.message; }
+};
+async function refreshWords() {
+  const d = await api("/api/banned-words");
+  $("#bwList").innerHTML = d.words.map(w => `
+    <span class="word">${esc(w)}<button onclick="delWord('${esc(w)}')">×</button></span>`).join("");
+}
+window.delWord = async w => { await api("/api/banned-words/" + encodeURIComponent(w), { method: "DELETE" }); refreshWords(); };
+$("#bwAdd").onclick = async () => {
+  const v = $("#bwInput").value.trim(); if (!v) return;
+  try { await api("/api/banned-words", { method: "POST", body: JSON.stringify({ word: v }) });
+    $("#bwInput").value = ""; refreshWords(); } catch (e) { alert(e.message); }
+};
+
+/* ---------- 启动 ---------- */
+if (token) enterApp().catch(() => logout());
+</script>
+</body>
+</html>
