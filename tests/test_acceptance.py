@@ -288,3 +288,32 @@ def test_extreme_aspect_cover_renders(client):
     im = Image.open(io.BytesIO(r.content)).convert("RGB")
     assert im.size == (1080, 1440)
     assert dt < 30, f"渲染耗时 {dt:.1f}s 过长"
+
+
+def test_check_records_checked_at_and_edit_clears_it(client):
+    """进度条「违禁词自查」步的推导依据：带 draft_id 自查记 checked_at，
+    不带不记；改正文后标记清除（内容变了要重查）。"""
+    token = _login(client)
+    r = client.post(
+        "/api/drafts",
+        headers=_auth(token),
+        json={"title": "自查记录测试", "body": "正文", "tags": []},
+    )
+    assert r.status_code == 200, r.text
+    did = r.json()["id"]
+    d = client.get(f"/api/drafts/{did}", headers=_auth(token)).json()
+    assert not d.get("checked_at")
+    r = client.post("/api/check", headers=_auth(token),
+                    json={"title": "自查记录测试", "body": "正文"})
+    assert r.status_code == 200, r.text
+    d = client.get(f"/api/drafts/{did}", headers=_auth(token)).json()
+    assert not d.get("checked_at"), "不带 draft_id 的自查不该记录"
+    r = client.post("/api/check", headers=_auth(token),
+                    json={"title": "自查记录测试", "body": "正文", "draft_id": did})
+    assert r.status_code == 200, r.text
+    d = client.get(f"/api/drafts/{did}", headers=_auth(token)).json()
+    assert d.get("checked_at"), "带 draft_id 自查后应有 checked_at"
+    r = client.put(f"/api/drafts/{did}", headers=_auth(token), json={"body": "改过的正文"})
+    assert r.status_code == 200, r.text
+    d = client.get(f"/api/drafts/{did}", headers=_auth(token)).json()
+    assert not d.get("checked_at"), "改正文后自查标记应清除"

@@ -133,11 +133,16 @@ def init_db():
                 published_url TEXT NOT NULL DEFAULT '',
                 published_at TEXT NOT NULL DEFAULT '',
                 exported_at TEXT NOT NULL DEFAULT '',
+                checked_at TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
             """
         )
+        # 老库补列：checked_at 是进度条"违禁词自查"步的推导依据（后加的字段）
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(drafts)").fetchall()]
+        if cols and "checked_at" not in cols:
+            conn.execute("ALTER TABLE drafts ADD COLUMN checked_at TEXT NOT NULL DEFAULT ''")
         row = conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()
         if row["c"] == 0:
             conn.execute(
@@ -946,12 +951,17 @@ async def update_draft(draft_id: int, request: Request, user=Depends(get_current
             title != cur["title"] or body != cur["body"]
             or tags != old_tags or template != cur["template"]
         )
+        # 标题/正文改动后，自查结论对新内容不再成立：清掉 checked_at，
+        # 进度条的「违禁词自查」步退回未完成，提醒重查（与改稿清卡片同理）
+        text_changed = title != cur["title"] or body != cur["body"]
+        new_checked_at = "" if text_changed else cur.get("checked_at", "")
         conn.execute(
             "UPDATE drafts SET title=?, body=?, tags=?, status=?, template=?, "
-            "published_url=?, published_at=?, updated_at=? WHERE id=?",
+            "published_url=?, published_at=?, checked_at=?, updated_at=? WHERE id=?",
             (title, body, json.dumps(tags, ensure_ascii=False), status, template,
              _pick("published_url", cur["published_url"]),
              _pick("published_at", cur["published_at"]),
+             new_checked_at,
              now_str(), draft_id),
         )
     if content_changed:
@@ -1072,6 +1082,13 @@ async def check_text(request: Request, user=Depends(get_current_user)):
     data = await body_json(request)
     title = str(data.get("title", ""))
     body = str(data.get("body", ""))
+    draft_id = data.get("draft_id")
+    if draft_id:
+        # 编辑器里对已存草稿自查时带上 draft_id：记下自查时间，
+        # 进度条的「违禁词自查」步靠 checked_at 推导（查过没有也算查过）。
+        # 工作室里还没存草稿时不带，不记录。
+        with get_db() as conn:
+            conn.execute("UPDATE drafts SET checked_at=? WHERE id=?", (now_str(), draft_id))
     return {"hits": check_banned(title, body),
             "title_len": len(title), "body_len": len(body),
             "title_limit": TITLE_LIMIT, "body_limit": BODY_LIMIT}

@@ -56,6 +56,34 @@
   .status { font-size:12px; padding:2px 9px; border-radius:20px; background:#f3ece7; }
   .status.ready { background:#fff4e0; }
   .status.published { background:#e8f7f1; color:var(--ok); }
+  /* 生产进度条：选题→写稿→成卡→违禁词自查→待发布→已发布 */
+  .flow { display:flex; align-items:flex-start; margin:10px 0 2px; }
+  .flow .stp { display:flex; flex-direction:column; align-items:center; width:30px; flex:none; }
+  .flow .dot { width:26px; height:26px; border-radius:50%; border:2px solid var(--line);
+               background:#fff; color:var(--muted); font-size:13px; line-height:22px;
+               text-align:center; position:relative;
+               transition:background .3s, border-color .3s, color .3s; }
+  .flow .stp.done .dot { background:var(--ok); border-color:var(--ok); color:#fff; }
+  .flow .stp.cur .dot { border-color:var(--berry); color:var(--berry-dark); font-weight:700; }
+  .flow .stp.cur .dot::after { content:""; position:absolute; inset:-2px; border-radius:50%;
+               border:2px solid var(--berry); animation:flowPulse 1.8s ease-out infinite; }
+  @keyframes flowPulse { 0% { transform:scale(1); opacity:.7; }
+                         70% { transform:scale(1.45); opacity:0; }
+                         100% { transform:scale(1.45); opacity:0; } }
+  .flow .lab { font-size:11px; color:var(--muted); margin-top:4px; white-space:nowrap; }
+  .flow .stp.done .lab { color:var(--ok); }
+  .flow .stp.cur .lab { color:var(--berry-dark); font-weight:600; }
+  .flow .bar { flex:1; height:4px; border-radius:2px; background:var(--line);
+               margin-top:11px; overflow:hidden; }
+  .flow .fill { height:100%; width:100%; border-radius:2px; transform:scaleX(0);
+                transform-origin:left; transition:transform .7s ease; }
+  .flow .fill.on { transform:scaleX(1);
+                background:linear-gradient(90deg, var(--ok), #57c79b, var(--ok));
+                background-size:200% 100%; animation:flowSlide 2.2s linear infinite; }
+  @keyframes flowSlide { 0% { background-position:0% 0; } 100% { background-position:200% 0; } }
+  .flow.mini .dot { width:20px; height:20px; font-size:11px; line-height:16px; }
+  .flow.mini .bar { margin-top:8px; }
+  .flow.mini .lab { font-size:10px; }
   .hit { display:inline-block; background:#ffe3e8; color:var(--berry-dark); border-radius:8px;
          padding:2px 8px; margin:2px 4px 2px 0; font-size:13px; }
   .cards-preview { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
@@ -189,6 +217,7 @@
         </div>
         <div class="card hidden" id="draftEditor">
           <h3>编辑草稿</h3>
+          <div id="edFlow"></div>
           <label class="lbl">标题（<span id="edTitleCount">0</span>/20）</label>
           <input id="edTitle" style="width:100%">
           <label class="lbl">正文（<span id="edBodyCount">0</span>/1000）</label>
@@ -400,8 +429,10 @@ function showHits(sel, hits) {
     ? "违禁词命中：" + hits.map(h => `<span class="hit">${esc(h.word)}（标题${h.in_title}/正文${h.in_body}）</span>`).join("")
     : '<span class="muted">未命中违禁词</span>';
 }
-async function runCheck(title, body, sel) {
-  const r = await api("/api/check", { method: "POST", body: JSON.stringify({ title, body }) });
+async function runCheck(title, body, sel, draftId) {
+  const payload = { title, body };
+  if (draftId) payload.draft_id = draftId;
+  const r = await api("/api/check", { method: "POST", body: JSON.stringify(payload) });
   showHits(sel, r.hits);
 }
 $("#genCheck").onclick = () => runCheck(currentGenTitle(), $("#genBody").value, "#genHits").catch(e => alert(e.message));
@@ -419,14 +450,57 @@ $("#genSave").onclick = async () => {
 
 /* ---------- 草稿 ---------- */
 const STATUS_LABEL = { draft: "草稿", ready: "待发布", published: "已发布" };
+/* 生产进度条：六步全部从草稿现有数据推导（口径见仓库 DECISIONS.md D-15）：
+   选题=标题已定或挂着选题；写稿=正文非空；成卡=磁盘上有卡片文件；
+   违禁词自查=checked_at 非空（自查时记录、改正文后清空）；
+   待发布=状态 ready/published；已发布=状态 published。 */
+const FLOW_LABELS = ["选题", "写稿", "成卡", "违禁词自查", "待发布", "已发布"];
+function draftSteps(d) {
+  const st = d.status || "draft";
+  return [
+    !!((d.title || "").trim() || d.topic_id),
+    !!((d.body || "").trim()),
+    (d.cards || []).length > 0,
+    !!d.checked_at,
+    st === "ready" || st === "published",
+    st === "published",
+  ];
+}
+function flowHTML(d, mini) {
+  const done = draftSteps(d);
+  const cur = done.indexOf(false);
+  let h = `<div class="flow${mini ? " mini" : ""}">`;
+  FLOW_LABELS.forEach((label, i) => {
+    const cls = done[i] ? "done" : (i === cur ? "cur" : "");
+    h += `<div class="stp ${cls}"><div class="dot">${done[i] ? "✓" : i + 1}</div><div class="lab">${label}</div></div>`;
+    if (i < FLOW_LABELS.length - 1)
+      h += `<div class="bar"><div class="fill" data-on="${done[i] ? 1 : 0}"></div></div>`;
+  });
+  return h + "</div>";
+}
+function paintFlows(root) {
+  /* 两帧后再点亮填充，让 scaleX 的 transition 真的"流过去"，而不是一打开就到位 */
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    (root || document).querySelectorAll(".flow .fill").forEach(f => {
+      if (f.dataset.on === "1") f.classList.add("on");
+    });
+  }));
+}
+function renderEdFlow() {
+  if (!currentDraft) return;
+  $("#edFlow").innerHTML = flowHTML(currentDraft);
+  paintFlows($("#edFlow"));
+}
 async function refreshDrafts() {
   const f = $("#draftFilter").value;
   const d = await api("/api/drafts" + (f ? "?status=" + f : ""));
   $("#draftList").innerHTML = d.drafts.map(x => `
     <div class="item"><div class="grow"><b>${esc(x.title) || "（无标题）"}</b>
       <span class="status ${x.status}">${STATUS_LABEL[x.status] || x.status}</span>
-      <div class="muted">${esc((x.tags || []).map(t => "#" + t).join(" "))} · 更新于 ${esc(x.updated_at || "")}</div></div>
+      <div class="muted">${esc((x.tags || []).map(t => "#" + t).join(" "))} · 更新于 ${esc(x.updated_at || "")}</div>
+      ${flowHTML(x, true)}</div>
       <button onclick="openDraft(${x.id})">编辑</button></div>`).join("") || '<p class="muted">草稿箱是空的</p>';
+  paintFlows($("#draftList"));
 }
 $("#draftRefresh").onclick = refreshDrafts;
 $("#draftFilter").onchange = refreshDrafts;
@@ -439,6 +513,7 @@ window.openDraft = async id => {
   $("#edStatus").value = d.status; $("#edTemplate").value = d.template;
   $("#edPubUrl").value = d.published_url || "";
   $("#edHits").innerHTML = ""; edSync();
+  renderEdFlow();
   showCards(d);
 };
 function edSync() {
@@ -453,10 +528,25 @@ $("#edSave").onclick = async () => {
       title: $("#edTitle").value, body: $("#edBody").value,
       tags: $("#edTags").value.split(/[,，]/).map(s => s.trim()).filter(Boolean),
       status: $("#edStatus").value, template: $("#edTemplate").value }) });
+    currentDraft = await api("/api/drafts/" + currentDraft.id);
+    renderEdFlow();
     alert("已保存"); refreshDrafts();
   } catch (e) { alert(e.message); }
 };
-$("#edCheck").onclick = () => runCheck($("#edTitle").value, $("#edBody").value, "#edHits").catch(e => alert(e.message));
+$("#edCheck").onclick = async () => {
+  if (!currentDraft) return;
+  try {
+    /* 先静默存一次，自查记录（checked_at）才对应得上已保存的内容；
+       保存若改正文，后端会先清掉旧自查标记，随后这次自查再重新记上 */
+    await api("/api/drafts/" + currentDraft.id, { method: "PUT", body: JSON.stringify({
+      title: $("#edTitle").value, body: $("#edBody").value,
+      tags: $("#edTags").value.split(/[,，]/).map(s => s.trim()).filter(Boolean),
+      status: $("#edStatus").value, template: $("#edTemplate").value }) });
+    await runCheck($("#edTitle").value, $("#edBody").value, "#edHits", currentDraft.id);
+    currentDraft = await api("/api/drafts/" + currentDraft.id);
+    renderEdFlow(); refreshDrafts();
+  } catch (e) { alert(e.message); }
+};
 async function showCards(d) {
   const box = $("#edCards"); box.innerHTML = "";
   for (const name of (d.cards || [])) {
@@ -473,6 +563,7 @@ $("#edRender").onclick = async () => {
   const r = await api("/api/drafts/" + currentDraft.id + "/render",
     { method: "POST", body: JSON.stringify({ template: $("#edTemplate").value }) });
   const d = await api("/api/drafts/" + currentDraft.id); currentDraft = d; showCards(d);
+  renderEdFlow(); refreshDrafts();
   alert("已生成 " + r.count + " 张卡片");
 };
 $("#edCoverBtn").onclick = async () => {
@@ -483,6 +574,8 @@ $("#edCoverBtn").onclick = async () => {
     { method: "POST", headers: { Authorization: "Bearer " + token }, body: fd });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { alert(j.detail || "上传失败"); return; }
+  /* 换封面会清掉旧卡片，进度条的「成卡」步随之退回，刷新一下 */
+  currentDraft = await api("/api/drafts/" + currentDraft.id); renderEdFlow(); refreshDrafts();
   alert("封面已上传，重新生成卡片即可看到效果");
 };
 $("#edExport").onclick = async () => {
@@ -501,7 +594,9 @@ $("#edPubSave").onclick = async () => {
     published_url: $("#edPubUrl").value.trim(),
     published_at: new Date().toISOString().slice(0, 19).replace("T", " "),
     status: "published" }) });
-  $("#edStatus").value = "published"; alert("已回填"); refreshDrafts();
+  $("#edStatus").value = "published";
+  currentDraft = await api("/api/drafts/" + currentDraft.id); renderEdFlow();
+  alert("已回填"); refreshDrafts();
 };
 $("#edDelete").onclick = async () => {
   if (!currentDraft || !confirm("删除这篇草稿？")) return;
