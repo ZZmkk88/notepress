@@ -71,11 +71,13 @@ python tests/live_selftest.py
 
 测试依赖文件 requirements-dev.txt 只钉了 pytest，运行时包要先装 requirements.txt。
 
-`tests/test_app.py`（25 项）+ `tests/test_acceptance.py`（7 项）共 32 项；
+`tests/test_app.py`（25 项）+ `tests/test_acceptance.py`（12 项）共 37 项；
 真实流程自测 16 个检查点（起真服务走完 选题→写稿→草稿→成卡→导出 全流程）。
 
-覆盖：登录与会话、选题扩写、写稿（打桩与演示模式）、标题 20 字 / 正文 1000 字上限、
-违禁词命中、成卡 1080×1440 与文字不溢出、缺字体降级、封面上传、发布包 zip。
+覆盖：登录与会话、选题扩写、写稿（演示模式用例断言不调用 httpx.post，
+另有打桩 llm_chat 的用例走真实分支）、标题 20 字 / 正文 1000 字上限、
+违禁词命中、成卡 1080×1440 与文字不溢出、缺字体降级、封面上传、发布包 zip、
+草稿进度条的自查记录（checked_at）。
 
 ## 环境变量
 

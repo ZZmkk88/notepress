@@ -317,3 +317,33 @@ def test_check_records_checked_at_and_edit_clears_it(client):
     assert r.status_code == 200, r.text
     d = client.get(f"/api/drafts/{did}", headers=_auth(token)).json()
     assert not d.get("checked_at"), "改正文后自查标记应清除"
+
+
+def test_generate_llm_too_few_titles_rejected(client, monkeypatch):
+    """AI 只返回 1-2 个标题时明确 502，不静默接受（094-P2-5）。"""
+    monkeypatch.setenv("NOTEPRESS_LLM_API_KEY", "test-key-not-real")
+
+    def fake_chat(messages, temperature=0.8):
+        return json.dumps({"titles": ["只有一个标题"], "body": "正文",
+                           "tags": ["AI工具"]}, ensure_ascii=False)
+
+    monkeypatch.setattr(app_module, "llm_chat", fake_chat)
+    token = _login(client)
+    r = client.post("/api/generate", headers=_auth(token),
+                    json={"topic": "选题", "tone": "checklist"})
+    assert r.status_code == 502, r.text
+
+
+def test_generate_llm_too_many_tags_rejected(client, monkeypatch):
+    """AI 返回超过 10 个标签时明确 502，不静默切片（094-P2-4）。"""
+    monkeypatch.setenv("NOTEPRESS_LLM_API_KEY", "test-key-not-real")
+
+    def fake_chat(messages, temperature=0.8):
+        return json.dumps({"titles": ["标题一", "标题二", "标题三"], "body": "正文",
+                           "tags": [f"标签{i}" for i in range(11)]}, ensure_ascii=False)
+
+    monkeypatch.setattr(app_module, "llm_chat", fake_chat)
+    token = _login(client)
+    r = client.post("/api/generate", headers=_auth(token),
+                    json={"topic": "选题", "tone": "checklist"})
+    assert r.status_code == 502, r.text

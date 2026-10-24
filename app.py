@@ -399,11 +399,14 @@ def ai_generate(topic: str, tone: str):
         raise HTTPException(502, "AI 没有返回正文，请重试")
     if len(body) > BODY_LIMIT:
         raise HTTPException(502, f"AI 返回的正文 {len(body)} 字，超过 {BODY_LIMIT} 字上限，请重试")
+    if len(titles) < 3:
+        raise HTTPException(502, f"AI 返回的标题只有 {len(titles)} 个，不足 3 个，请重试")
     tags = [str(t).strip().lstrip("#") for t in out.get("tags", []) if str(t).strip()]
     over_tag = next((t for t in tags if len(t) > TAG_LIMIT), None)
     if over_tag:
         raise HTTPException(502, f"AI 返回的标签超过 {TAG_LIMIT} 字（{over_tag[:12]}…），请重试")
-    tags = tags[:MAX_TAGS]
+    if len(tags) > MAX_TAGS:
+        raise HTTPException(502, f"AI 返回的标签 {len(tags)} 个，超过 {MAX_TAGS} 个上限，请重试")
     return {"titles": titles, "body": body, "tags": tags, "demo": False}
 
 # ---------------------------------------------------------------- 图文成卡
